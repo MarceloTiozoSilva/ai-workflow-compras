@@ -1,0 +1,271 @@
+{
+  "name": "Fluxo Compras - Popware",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "3bcd5339-2e18-476f-afe1-58716e5bfd69",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [0, 0],
+      "id": "bc1aa513-74e6-4492-ae31-5e1e11a529a1",
+      "name": "Webhook",
+      "webhookId": "3bcd5339-2e18-476f-afe1-58716e5bfd69"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer SUA_GROQ_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama-3.3-70b-versatile\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Voce e um classificador de materiais. Analise o pedido e retorne APENAS um JSON valido, sem texto adicional, sem markdown, sem explicacoes.\\n\\nMateriais e categorias disponiveis:\\n- Fio → Estrutura\\n- Disco → Ferramenta\\n- Areia → Agregados\\n\\nSe o pedido mencionar um desses materiais, retorne:\\n{\\\"material\\\": \\\"nome exato conforme lista\\\", \\\"categoria\\\": \\\"categoria exata conforme lista\\\", \\\"quantidade\\\": null}\\n\\nSe nao identificar nenhum material da lista, retorne:\\n{\\\"material\\\": null, \\\"categoria\\\": null, \\\"quantidade\\\": null}\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.body.text.message }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [208, 0],
+      "id": "d0d8ffdd-3a4b-457c-a0ce-a0ff9e4671d6",
+      "name": "Groq1"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1vmZ3FktqahSaW0-wJd9uZpTqgpZN4P8hwanEI-iEBk0",
+          "mode": "list",
+          "cachedResultName": "Tabela MVP - N8N ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1vmZ3FktqahSaW0-wJd9uZpTqgpZN4P8hwanEI-iEBk0/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Tabela MVP",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1vmZ3FktqahSaW0-wJd9uZpTqgpZN4P8hwanEI-iEBk0/edit#gid=0"
+        },
+        "options": {
+          "alwaysOutputData": true
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [416, 0],
+      "id": "8bcb0735-8b96-44d0-90c7-c15543a2792e",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "nQLLN7RxDqgiFQrO",
+          "name": "Google Sheets OAuth2 API"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const groq1Output = $('Groq1').first().json;\nconst materialRaw = groq1Output.choices[0].message.content;\n\nlet parsed;\ntry {\n  parsed = JSON.parse(materialRaw);\n} catch(e) {\n  parsed = null;\n}\n\nconst materiaisValidos = ['Fio', 'Disco', 'Areia'];\nconst materialValido = parsed && parsed.material && materiaisValidos.includes(parsed.material);\n\nif (!materialValido) {\n  return [{ json: { mensagemErro: 'Nao identifiquei um material de compras no seu pedido. Descreva o que precisa comprar. Ex: Areia, Disco, Fio.' } }];\n}\n\nconst materialPedido = parsed.material.trim();\nconst categoriaped = parsed.categoria.trim();\nconst todosFornecedores = $input.all();\n\nconst fornecedoresFiltrados = todosFornecedores.filter(item => {\n  const f = item.json;\n  const catPlanilha = (f['Categoria '] || f['Categoria'] || '').trim();\n  const matPlanilha = (f['Material'] || f['Material '] || '').trim();\n  const homologado = (f['Homologado '] || f['Homologado'] || '').trim().toLowerCase();\n  return catPlanilha === categoriaped && matPlanilha === materialPedido && homologado === 'sim';\n});\n\nif (fornecedoresFiltrados.length === 0) {\n  return [{ json: { mensagemErro: 'Material nao encontrado na base de fornecedores. Verifique o nome ou consulte o responsavel pelo cadastro.' } }];\n}\n\nconst materialInfo = 'Material: ' + parsed.material + ' | Categoria: ' + parsed.categoria;\n\nconst fornecedores = fornecedoresFiltrados.map(item => {\n  const f = item.json;\n  const nome = (f['Fornecedor '] || f['Fornecedor'] || 'N/A').trim();\n  const preco = f['Preço_ref'] || f['Preco_ref'] || 'N/A';\n  const prazo = f['Prazo_dias'] || 'N/A';\n  const disp = (f['Disponibilidade '] || f['Disponibilidade'] || 'N/A').trim();\n  return nome + ' | R$ ' + preco + ' | Prazo: ' + prazo + ' dias | Disponibilidade: ' + disp;\n}).join('\\n');\n\nconst userContent = materialInfo + '\\n\\nFornecedores encontrados:\\n' + fornecedores;\n\nconst payload = {\n  model: 'llama-3.3-70b-versatile',\n  messages: [\n    {\n      role: 'system',\n      content: 'Voce e um agente de compras. Monte um briefing estruturado.\\n\\nFormato obrigatorio:\\n\\nBRIEFING DE COMPRAS\\nMaterial: [material]\\nCategoria: [categoria]\\n\\nFORNECEDORES DISPONIVEIS\\n- [Nome] | R$ [preco] | Prazo: [X] dias | Disponibilidade: [nivel]\\n\\nRECOMENDACAO\\n[Melhor opcao justificada]'\n    },\n    {\n      role: 'user',\n      content: userContent\n    }\n  ]\n};\n\nreturn [{ json: { payload } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [624, 0],
+      "id": "7b21ae80-8bd3-4eec-b312-55931afc9de4",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "443722bc-9c84-4c78-8699-6f68c7efc247",
+              "leftValue": "={{ $json.mensagemErro }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "name": "filter.operator.exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [832, 0],
+      "id": "0934be60-0a5e-4112-893b-b576b114a2aa",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.z-api.io/instances/SUA_INSTANCIA/token/SEU_TOKEN/send-text",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Client-Token",
+              "value": "SEU_ZAPI_CLIENT_TOKEN"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "phone",
+              "value": "={{ $('Webhook').item.json.body.phone }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $json.mensagemErro }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1040, 160],
+      "id": "aaa00001-erro-zapi-direto",
+      "name": "Z-API Erro"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer SUA_GROQ_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1040, -160],
+      "id": "db7f68a5-b9d8-4c38-8b84-c5ec01f10b27",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.choices[0].message.content }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [1240, -160],
+      "id": "91412bdf-75ee-4acf-b921-3c3be73af5fb",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.z-api.io/instances/SUA_INSTANCIA/token/SEU_TOKEN/send-text",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Client-Token",
+              "value": "SEU_ZAPI_CLIENT_TOKEN"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "phone",
+              "value": "={{ $('Webhook').item.json.body.phone }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $json.choices[0].message.content }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1440, -160],
+      "id": "7ef309b7-44a0-4eb7-b8f9-bcd894f06ec5",
+      "name": "HTTP Request"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "Groq1", "type": "main", "index": 0}]]
+    },
+    "Groq1": {
+      "main": [[{"node": "Get row(s) in sheet", "type": "main", "index": 0}]]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [{"node": "Code in JavaScript", "type": "main", "index": 0}],
+        [{"node": "Code in JavaScript", "type": "main", "index": 0}]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [[{"node": "If", "type": "main", "index": 0}]]
+    },
+    "If": {
+      "main": [
+        [{"node": "Z-API Erro", "type": "main", "index": 0}],
+        [{"node": "HTTP Request1", "type": "main", "index": 0}]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [[{"node": "Respond to Webhook", "type": "main", "index": 0}]]
+    },
+    "Respond to Webhook": {
+      "main": [[{"node": "HTTP Request", "type": "main", "index": 0}]]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "463990865783701ed5679c1855dd42681e296d3c9322399b57c47ec4ebb96ad0"
+  },
+  "id": "HdTPQuERN36Ew2en",
+  "tags": []
+}
