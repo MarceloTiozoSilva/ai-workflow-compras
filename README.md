@@ -100,4 +100,4 @@ ai-workflow-compras/
 
 ## Autor
 
-**Marcelo Tiozo Silva** — [github.com/MarceloTiozoSilva](https://github.com/MarceloTiozoSilva)
+[Marcelo Tiozo da Silva](https://github.com/MarceloTiozoSilva)
